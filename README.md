@@ -58,9 +58,9 @@ O firmware gere 3 estados principais de fornecimento elétrico consoante o saldo
 
 | Condição de Saldo | Mensagem no LCD | Estado do Relé 1 | LED Verde (GPIO 5) | LED Vermelho (GPIO 4) |
 |---|:---:|:---:|:---:|:---:|
-| **`Saldo == 0.0 kWh`** | **`NO CREDIT`** | **OFF** (Corte) | 🔴 Apagado | 🔴 **Aceso Fixo** |
-| **`0.0 < Saldo < 5.0 kWh`** | **`WARNING`** | **ON** (Ligado) | 🟢 **Aceso Fixo** | ⚡ **Pisca (1000ms)** |
-| **`Saldo >= 5.0 kWh`** | **`CREDIT`** | **ON** (Ligado) | 🟢 **Aceso Fixo** | 🔴 Apagado |
+| **`Saldo == 0.0 kWh`** | **`NO CREDIT`** | **OFF** (Corte) | Apagado | **Aceso Fixo** |
+| **`0.0 < Saldo < 5.0 kWh`** | **`WARNING`** | **ON** (Ligado) | **Aceso Fixo** | **Pisca (1000ms)** |
+| **`Saldo >= 5.0 kWh`** | **`CREDIT`** | **ON** (Ligado) | **Aceso Fixo** | Apagado |
 
 ---
 
