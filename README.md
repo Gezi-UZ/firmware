@@ -1,131 +1,62 @@
-# Gezi — Firmware IoT (ESP32-WROVER-E)
+# Gezi Firmware 
 
-> **Plataforma Digital Baseada em Internet das Coisas (IoT) para Modernização do Sistema de CREDELEC pela Electricidade de Moçambique**  
-> **Autor:** Dai Wen Xuan  
-> **Instituição:** Universidade Zambeze — Faculdade de Ciências e Tecnologia (Beira, 2026)
+Este repositório contém o firmware em **MicroPython** para o medidor de energia pré-pago inteligente do projeto **Gezi**. O firmware foi desenhado utilizando **Clean Architecture** e princípios **SOLID**, separando completamente a lógica de negócio do hardware e garantindo um código altamente testável, escalável e robusto.
 
 ---
 
-## Sobre o Projeto
+## Arquitetura do sistema
 
-O **Gezi** é uma solução IoT concebida para modernizar o sistema de pré-pagamento de energia elétrica em Moçambique (**CREDELEC**), gerido pela Electricidade de Moçambique (EDM). 
+O firmware adota uma abordagem orientada a eventos (EDA - Event-Driven Architecture) e está dividido em 4 camadas principais:
 
-Este repositório (`gezi-firmware`) contém o código em **MicroPython** e a documentação física da **maquete de simulação / sandbox IoT** executada num microcontrolador **ESP32-WROVER-E**. A maquete simula localmente a medição de energia em kWh, corte e religação de corrente via relé, interface visual no LCD 1602, entrada de códigos/valores via teclado 4x4 e sinalização de estado através de LEDs indicadores.
+1. **Domain (`app/domain/`)**: O coração da aplicação. Contém a entidade `Meter` que gere o saldo de kWh e o estado (`CREDIT`, `WARNING`, `NO_CREDIT`). **Nenhum detalhe de hardware (ex: `import machine`) existe aqui.**
+2. **Application (`app/application/use_cases/`)**: Regras de negócio orquestradas (ex: gerir o buffer do teclado, pedir validação de tokens, aplicar consumos).
+3. **Adapters (`app/adapters/`)**: Onde o software fala com o hardware. Implementações concretas para LCD, Teclado, Relé, PZEM e HTTP. É aqui que os drivers do ESP32 vivem.
+4. **Infrastructure (`app/infrastructure/`)**: Serviços de comunicação base, como o cliente WiFi e o cliente MQTT (com suporte a TLS) para comunicar com a Cloud.
 
----
-
-## Componentes de Hardware
-
-* **Microcontrolador:** ESP32-WROVER-E (com SPIRAM/PSRAM)
-* **Ecrã:** LCD 1602 com módulo I2C (PCF8574)
-* **Atuador:** Módulo de Relé 2 Canais (SRD-05VDC-SL-C, Ativo em nível LOW)
-* **Interface de Entrada:** Teclado Matricial 4x4
-* **Sinalizadores:** 
-  * 1x LED Verde (Indicador de Crédito / Fornecimento Ativo)
-  * 1x LED Vermelho (Indicador de Alerta / Sem Crédito)
-  * 2x Resistências de $220\Omega$ / $330\Omega$
+O ficheiro `main.py` funciona como **Composition Root**: junta todas as peças e arranca o loop principal, mas não contém lógica de negócio.
 
 ---
 
-## Mapa de Pinos Completo (GPIOs ESP32-WROVER)
+## Circuito e Ligações (Hardware)
 
-> **Nota Importante de Hardware:** Os pinos **GPIO 16 e 17** são reservados internamente para a memória PSRAM do ESP32 WROVER e **não podem ser utilizados**.
+Este projeto foi desenhado para correr num **ESP32** (ex: ESP32-WROVER-E). Aqui estão as ligações padrão configuradas no `app/core/config.py`:
 
-| Componente | Pino do Componente | GPIO ESP32 | Descrição / Função |
-|---|---|---|---|
-| **LCD 1602 I2C** | SDA | **GPIO 21** | Barramento de dados I2C |
-| | SCL | **GPIO 22** | Barramento de relógio I2C |
-| | VCC / GND | **5V / GND** | Alimentação do ecrã |
-| **Relé 1** | IN1 | **GPIO 19** | Corte / Religação principal de energia |
-| **Relé 2** | IN2 | **GPIO 15** | Canal auxiliar / reserva futuro |
-| | VCC / GND | **5V / GND** | Alimentação do módulo de relés |
-| **LED Vermelho** | Ânodo (+) | **GPIO 4** | Sinalização de alerta/corte (com resistência $220\Omega$) |
-| **LED Verde** | Ânodo (+) | **GPIO 5** | Sinalização de crédito ativo (com resistência $220\Omega$) |
-| **Teclado 4x4** | Pino 1 (R4) | **GPIO 26** | Linha 4 (`[*, 0, #, D]`) |
-| | Pino 2 (R3) | **GPIO 27** | Linha 3 (`[7, 8, 9, C]`) |
-| | Pino 3 (R2) | **GPIO 14** | Linha 2 (`[4, 5, 6, B]`) |
-| | Pino 4 (R1) | **GPIO 0** | Linha 1 (`[1, 2, 3, A]`) |
-| | Pino 5 (C4) | **GPIO 32** | Coluna 4 (`[A, B, C, D]`) |
-| | Pino 6 (C3) | **GPIO 33** | Coluna 3 (`[3, 6, 9, #]`) |
-| | Pino 7 (C2) | **GPIO 25** | Coluna 2 (`[2, 5, 8, 0]`) |
-| | Pino 8 (C1) | **GPIO 18** | Coluna 1 (`[1, 4, 7, *]`) |
+| Componente | Pino ESP32 | Notas / Funcionalidade |
+| :--- | :--- | :--- |
+| **LCD 1602 (I2C)** | SDA: `21`, SCL: `22` | Mostra o saldo e buffer de 20 dígitos (espaçados a cada 4). |
+| **Teclado 4x4** | Linhas: `26`, `27`, `14`, `0` <br> Colunas: `32`, `33`, `25`, `18` | Inserção de tokens. Botão `A` valida, `C` limpa, `B` apaga um dígito. |
+| **PZEM-004T (V3.0)**| RX: `16`, TX: `17` | Medição de energia AC (Tensão, Corrente, Potência, kWh). |
+| **Módulo Relé (5V)** | PIN: `19` | Corta a corrente quando o saldo chega a 0 kWh (Active-LOW). |
+| **LED Verde** | PIN: `5` | Ligado quando há crédito (`CREDIT` e `WARNING`). |
+| **LED Vermelho** | PIN: `4` | Pisca (1Hz) no `WARNING` (< 5kWh). Fixo no `NO_CREDIT`. |
+
+> **Nota para testes:** O `PZEM-004T` pode ser simulado alterando `PZEM_SIMULATE = True` no `config.py`. Isto permite testar o decréscimo de saldo na maquete de demonstração sem a necessidade perigosa de usar 220V AC.
 
 ---
 
-## Regras de Estado do Sistema
+## Comunicação Cloud (MQTT & FastAPI)
 
-O firmware gere 3 estados principais de fornecimento elétrico consoante o saldo em kWh:
+O ESP32 não funciona isolado. Ele é o *Edge Node* numa arquitetura de IoT Cloud:
 
-| Condição de Saldo | Mensagem no LCD | Estado do Relé 1 | LED Verde (GPIO 5) | LED Vermelho (GPIO 4) |
-|---|:---:|:---:|:---:|:---:|
-| **`Saldo == 0.0 kWh`** | **`NO CREDIT`** | **OFF** (Corte) | Apagado | **Aceso Fixo** |
-| **`0.0 < Saldo < 5.0 kWh`** | **`WARNING`** | **ON** (Ligado) | **Aceso Fixo** | **Pisca (1000ms)** |
-| **`Saldo >= 5.0 kWh`** | **`CREDIT`** | **ON** (Ligado) | **Aceso Fixo** | Apagado |
+1. **Recarga via teclado (HTTP POST):** Quando um token de 20 dígitos é inserido, o ESP32 faz um pedido síncrono ao backend FastAPI para validação (hashing/idempotência contra o Supabase). O ESP32 **nunca** valida tokens localmente.
+2. **Telemetria (MQTT):** A cada segundo, o ESP32 publica o seu saldo e consumos para o HiveMQ Cloud no tópico `gezi/{device_id}/telemetry`.
+3. **Recarga remota (MQTT):** O ESP32 subscreve ao tópico `gezi/{device_id}/cmd/credit`. Se o utilizador comprar energia via Mobile App (Flutter), o FastAPI avisa o ESP32 instantaneamente via HiveMQ, o ESP32 adiciona o crédito e acende o LCD a dizer "RECARGA REMOTA".
 
 ---
 
-## Mapeamento e Funções do Teclado 4x4
+## Como configurar e instalar (Setup)
 
-O teclado foi calibrado para permitir introduzir valores decimais e operar a sandbox facilmente:
-
-```text
-       [ 1 ] [ 2 ] [ 3 ] [ A ]
-       [ 4 ] [ 5 ] [ 6 ] [ B ]
-       [ 7 ] [ 8 ] [ 9 ] [ C ]
-       [ * ] [ 0 ] [ # ] [ D ]
-```
-
-| Tecla Física | Função | Descrição |
-|:---:|---|---|
-| **`0` a `9`** | Dígitos | Introduz o valor numérico da recarga |
-| **`*`** | Ponto Decimal (`.`) | Permite introduzir valores decimais (ex: `12.5` ou `0.5` kWh) |
-| **`A`** | **Aceitar (OK)** | Confirma a recarga digitada e atualiza o saldo/relé |
-| **`B`** | **Deletar (Backspace)** | Apaga o último dígito introduzido no buffer |
-| **`C`** | **Reset kWh** | Zera o saldo para `0.0 kWh` (Simula corte de energia `NO CREDIT`) |
-| **`D`** | Reservado | Utilização futura / Navegação |
+1. **Instalar o MicroPython:** Certifica-te que tens o firmware do MicroPython "flashado" no teu ESP32.
+2. **Configurar as credenciais (Secrets):**
+   * Copia o ficheiro template de credenciais:
+     ```bash
+     cp secrets.example.py secrets.py
+     ```
+   * Abre o `secrets.py` e preenche os teus dados de WiFi e as tuas credenciais do **HiveMQ Cloud** (Username, Password).
+   * *O `secrets.py` é ignorado pelo Git (via `.gitignore`) para não expores as tuas passwords acidentalmente.*
+3. **Enviar para o ESP32:**
+   * Usa a extensão **MicroPico** no VSCode ou a app **Thonny** para enviar todos os ficheiros da pasta atual (incluindo as sub-pastas `app/` e o teu novo `secrets.py`) para a raiz do ESP32.
+   * O ESP32 irá executar o `main.py` automaticamente no boot.
 
 ---
-
-## Estrutura do Repositório
-
-```text
-gezi-firmware/
-├── boot.py            # Ficheiro de arranque de baixo nível da ESP32
-├── i2c_lcd.py         # Driver I2C para o ecrã LCD 1602
-├── lcd_api.py         # API abstrata de controlo de carateres do LCD
-├── main.py            # Aplicação principal em MicroPython (Controlo de Estados, Relés, LEDs e Teclado)
-├── test_keypad.py     # Script de diagnóstico para teste e calibração de matriz do teclado
-└── README.md          # Documentação do hardware e firmware
-```
-
----
-
-## Como Executar no ESP32
-
-### 1. Requisitos Prévios
-* Placa ESP32-WROVER-E com firmware **MicroPython v1.27.0+** gravado.
-* Extensão **MicroPico** (VS Code) ou **Thonny IDE** para transferência de ficheiros.
-
-### 2. Carregar os Ficheiros
-Upload de todos os ficheiros Python para a memória flash da ESP32:
-* `boot.py`
-* `lcd_api.py`
-* `i2c_lcd.py`
-* `main.py`
-
-### 3. Execução
-Para iniciar o sistema na ESP32, executa no REPL:
-```python
-import main
-```
-Ou faz reset à placa (botão EN/RST) para arranque automático a partir do `boot.py`.
-
----
-
-## Contexto Académico
-
-Este repositório faz parte integrante do projeto de fim de curso da **Licenciatura em Engenharia Informática** na **Universidade Zambeze (FCT)**, inserido no ecossistema **Gezi** composto por 4 repositórios:
-1. `gezi-mobile`: Aplicação móvel Flutter (Android / iOS)
-2. `gezi-firmware`: Firmware IoT MicroPython (este repositório)
-3. `gezi-backend`: Servidor REST FastAPI / Python
-4. `gezi-infra`: Infraestrutura Docker Compose & MQTT Mosquitto
+*Projeto Académico — Licenciatura em Engenharia Informática, Universidade Zambeze (FCT).*
