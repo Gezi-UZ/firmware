@@ -1,4 +1,3 @@
-# app/application/use_cases/process_energy_reading.py
 # Single Responsibility: read sensor → update Meter balance.
 
 
@@ -11,9 +10,10 @@ class ProcessEnergyReading:
       meter   : Meter
     """
 
-    def __init__(self, monitor, meter):
+    def __init__(self, monitor, meter, repo):
         self._monitor = monitor
         self._meter   = meter
+        self._repo    = repo
 
     def execute(self) -> None:
         """
@@ -24,3 +24,5 @@ class ProcessEnergyReading:
         reading = self._monitor.read()
         if reading is not None:
             self._meter.apply_consumption(reading)
+            # Try to save to flash (Adapter handles wear-leveling)
+            self._repo.save(self._meter.balance_kwh, force=False)

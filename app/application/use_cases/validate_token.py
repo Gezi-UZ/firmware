@@ -1,4 +1,3 @@
-# app/application/use_cases/validate_token.py
 # Single Responsibility: submit token → apply result to Meter and outputs.
 
 
@@ -30,12 +29,13 @@ class ValidateToken:
       relay     : IRelay
     """
 
-    def __init__(self, validator, meter, display, leds, relay):
+    def __init__(self, validator, meter, display, leds, relay, repo):
         self._validator = validator
         self._meter     = meter
         self._display   = display
         self._leds      = leds
         self._relay     = relay
+        self._repo      = repo
 
     def execute(self, token: str) -> None:
         """
@@ -47,6 +47,10 @@ class ValidateToken:
 
         if result.success:
             self._meter.credit(result.kwh)
+            
+            # Save to flash immediately! (money just entered the system)
+            self._repo.save(self._meter.balance_kwh, force=True)
+            
             self._display.show_message(
                 "RECARGA OK!",
                 "+{:.1f} kWh".format(result.kwh),

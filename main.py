@@ -14,6 +14,8 @@ from app.adapters.status_leds          import StatusLeds
 from app.adapters.pzem_monitor         import PzemMonitor
 from app.adapters.http_token_validator import HttpTokenValidator
 
+from app.adapters.flash_meter_repository   import FlashMeterRepository
+
 # ── Domain ────────────────────────────────────────────────────────────────────
 from app.domain.entities.meter import Meter
 
@@ -53,16 +55,21 @@ def main() -> None:
         simulate=Config.PZEM_SIMULATE,
     )
     validator = HttpTokenValidator(Config.API_BASE_URL, Config.DEVICE_ID)
+    
+    # ── 2b. Persistence Adapter
+    repo = FlashMeterRepository(filename="meter_state.json", save_threshold_kwh=0.1)
 
     # ── 3. Domain ─────────────────────────────────────────────────────────────
-    meter = Meter(initial_kwh=0.0)
+    # Load state from non-volatile flash memory so we survive reboots
+    initial_kwh = repo.load()
+    meter = Meter(initial_kwh=initial_kwh)
 
     # ── 4. Use-cases (dependency injection) ───────────────────────────────────
-    uc_energy     = ProcessEnergyReading(monitor, meter)
-    uc_validate   = ValidateToken(validator, meter, display, leds, relay)
+    uc_energy     = ProcessEnergyReading(monitor, meter, repo)
+    uc_validate   = ValidateToken(validator, meter, display, leds, relay, repo)
     uc_keypad     = HandleKeypadInput(keypad, display, uc_validate)
     uc_outputs    = UpdateOutputs(display, leds, relay)
-    uc_remote_cmd = HandleRemoteCommand(meter, display, leds, relay, mqtt)
+    uc_remote_cmd = HandleRemoteCommand(meter, display, leds, relay, mqtt, repo)
 
     # Wire up the MQTT callback for remote commands
     mqtt.set_command_callback(uc_remote_cmd.execute)

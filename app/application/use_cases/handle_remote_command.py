@@ -11,12 +11,13 @@ class HandleRemoteCommand:
     Example: Mobile App -> FastAPI -> HiveMQ -> ESP32 (this use case).
     """
 
-    def __init__(self, meter: Meter, display: IDisplay, leds: ILeds, relay: IRelay, mqtt_client):
+    def __init__(self, meter: Meter, display: IDisplay, leds: ILeds, relay: IRelay, mqtt_client, repo):
         self.meter   = meter
         self.display = display
         self.leds    = leds
         self.relay   = relay
         self.mqtt    = mqtt_client
+        self.repo    = repo
 
     def execute(self, cmd_type: str, payload: dict) -> None:
         """
@@ -30,6 +31,9 @@ class HandleRemoteCommand:
             if kwh > 0:
                 # 1. Apply credit to domain entity
                 self.meter.credit(kwh)
+                
+                # 1b. Save to flash immediately! (money just entered the system)
+                self.repo.save(self.meter.balance_kwh, force=True)
                 
                 # 2. Provide local UI feedback
                 self.display.show_message("RECARGA REMOTA", f"+{kwh:.1f} kWh")

@@ -17,7 +17,7 @@ O ficheiro `main.py` funciona como **Composition Root**: junta todas as peças e
 
 ---
 
-## Circuito e Ligações (Hardware)
+## Circuito e ligações (Hardware)
 
 Este projeto foi desenhado para correr num **ESP32** (ex: ESP32-WROVER-E). Aqui estão as ligações padrão configuradas no `app/core/config.py`:
 
