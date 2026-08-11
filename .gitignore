@@ -1,0 +1,10 @@
+# Python / MicroPython ignores
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+
+# Credenciais reais (NUNCA COMMITAR)
+secrets.py
