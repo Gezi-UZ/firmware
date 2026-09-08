@@ -7,24 +7,11 @@ from app.domain.ports.i_leds import ILeds
 from app.domain.ports.i_relay import IRelay
 
 class HandleRemoteCommand:
-    """
-    Executes actions based on remote commands received via MQTT.
-    Example: Mobile App -> FastAPI -> HiveMQ -> ESP32 (this use case).
-    Executes actions based on remote commands received via MQTT (HiveMQ Cloud).
-    Supports Dual-Channel meters (Channel 0 and Channel 1).
-    Example: Customer buys energy via Mobile/M-Pesa -> FastAPI -> HiveMQ -> ESP32 -> ACK to Backend.
-    """
+    """Handle remote MQTT commands for one or two meter channels."""
 
-    def __init__(self, meter: Meter, display: IDisplay, leds: ILeds, relay: IRelay, mqtt_client, repo):
-        self.meter   = meter
-        self.display = display
-        self.leds    = leds
-        self.relay   = relay
-        self.mqtt    = mqtt_client
-        self.repo    = repo
     def __init__(self, meter_c0: Meter, relay_c0: IRelay, repo_c0,
-                 display: IDisplay, leds: ILeds, mqtt_client,
-                 meter_c1: Meter = None, relay_c1: IRelay = None, repo_c1 = None):
+                display: IDisplay, leds: ILeds, mqtt_client,
+                meter_c1=None, relay_c1=None, repo_c1=None):
         self.meter_c0  = meter_c0
         self.relay_c0  = relay_c0
         self.repo_c0   = repo_c0
@@ -35,44 +22,12 @@ class HandleRemoteCommand:
         self.relay_c1  = relay_c1
         self.repo_c1   = repo_c1
 
-    def execute(self, cmd_type: str, payload: dict) -> None:
     def execute(self, serial_or_cmd: str, payload: dict) -> None:
         """
-        Process a remote command.
-        cmd_type is the last part of the MQTT topic (e.g., 'credit').
-        Process incoming command.
         serial_or_cmd is either the meter serial (e.g. 'CRD-2026-00001') or legacy cmd_type ('credit').
         """
-        print(f"[RemoteCmd] Received '{cmd_type}' with payload: {payload}")
         print(f"[RemoteCmd] Received command for '{serial_or_cmd}': {payload}")
 
-        if cmd_type == "credit":
-            kwh = float(payload.get("kwh", 0.0))
-            if kwh > 0:
-                # 1. Apply credit to domain entity
-                self.meter.credit(kwh)
-                
-                # 1b. Save to flash immediately! (money just entered the system)
-                self.repo.save(self.meter.balance_kwh, force=True)
-                
-                # 2. Provide local UI feedback
-                self.display.show_message("RECARGA REMOTA", f"+{kwh:.1f} kWh")
-                
-                # 3. Update hardware outputs (Relay, LEDs)
-                self.leds.update(self.meter)
-                self.relay.update(self.meter)
-                
-                # 4. Acknowledge back to the cloud
-                self.mqtt.publish_event(
-                    event_type="RECHARGE_APPLIED",
-                    kwh_credited=kwh,
-                    meter=self.meter
-                )
-                print(f"[RemoteCmd] Successfully applied {kwh} kWh.")
-        
-        elif cmd_type == "reset":
-            # Future expansion (e.g., reset meter state)
-            pass
         command = payload.get("command")
         # Legacy fallback if payload format is just {"kwh": ...} and serial_or_cmd is "credit"
         if not command and serial_or_cmd == "credit":
@@ -81,7 +36,6 @@ class HandleRemoteCommand:
         if command == "APPLY_CREDITS":
             self._handle_apply_credits(serial_or_cmd, payload)
         else:
-            print(f"[RemoteCmd] Unknown command type: {cmd_type}")
             print(f"[RemoteCmd] Unrecognized command '{command}' in payload: {payload}")
 
     def _handle_apply_credits(self, serial: str, payload: dict) -> None:

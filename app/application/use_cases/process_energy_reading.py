@@ -13,7 +13,7 @@ class ProcessEnergyReading:
     Stores latest readings for telemetry.
     """
 
-    def __init__(self, monitor, meter, repo):
+    def __init__(self, monitor, meter, repo): # pyright: ignore[reportRedeclaration]
         self._monitor = monitor
         self._meter   = meter
         self._repo    = repo
