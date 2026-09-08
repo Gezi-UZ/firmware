@@ -83,7 +83,11 @@ class HandleRemoteCommand:
 
     def _resolve_meter(self, serial: str):
         """Returns (meter, relay, repo, channel_label) for the given serial."""
-        if self.meter_c1 and (serial == getattr(self.meter_c1, "serial_number", "") or serial.endswith("00002") or serial == "c1"):
+        s = str(serial).strip()
+        c1_serial = getattr(self.meter_c1, "serial_number", "") if self.meter_c1 else ""
+        c0_serial = getattr(self.meter_c0, "serial_number", "") if self.meter_c0 else ""
+
+        if self.meter_c1 and (s == c1_serial or s.endswith("00002") or s.lower() in ("c1", "canal1", "channel1")):
             return self.meter_c1, self.relay_c1, self.repo_c1, "C1"
 
         # Default to Canal 0

@@ -107,9 +107,9 @@ class LcdDisplay(IDisplay):
         """Low-level: write both rows to the LCD."""
         lcd = self._lcd
         lcd.move_to(0, 0)
-        lcd.putstr(row0.ljust(self.COLS)[:self.COLS])
+        lcd.putstr(self._pad(row0, self.COLS))
         lcd.move_to(0, 1)
-        lcd.putstr(row1.ljust(self.COLS)[:self.COLS])
+        lcd.putstr(self._pad(row1, self.COLS))
 
     def _format_token_half(self, buffer: list, start: int, end: int) -> str:
         """
@@ -130,8 +130,23 @@ class LcdDisplay(IDisplay):
                 result.append(" ")
             char = buffer[global_i] if global_i < len(buffer) else "_"
             result.append(char)
-        return "".join(result).ljust(self.COLS)
+        return self._pad("".join(result), self.COLS)
+
+    @staticmethod
+    def _pad(text: str, width: int = 16) -> str:
+        """Pad string on the right with spaces up to width (equivalent to ljust)."""
+        text = str(text)
+        if len(text) < width:
+            return text + (" " * (width - len(text)))
+        return text[:width]
 
     @staticmethod
     def _centre(text: str, width: int = 16) -> str:
-        return text[:width].center(width)
+        """Center string within width without using str.center."""
+        text = str(text)[:width]
+        pad = width - len(text)
+        if pad <= 0:
+            return text
+        left = pad // 2
+        right = pad - left
+        return (" " * left) + text + (" " * right)

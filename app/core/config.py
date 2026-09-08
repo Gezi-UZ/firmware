@@ -77,6 +77,7 @@ class Config:
     # ── Status LEDs ───────────────────────────────────────────
     GREEN_PIN = 5   # GPIO 5 — credit active indicator
     RED_PIN   = 4   # GPIO 4 — alert / no-credit indicator
+    STATUS_LED_TIMER_ID = 0  # ESP32 hardware timer (0..3)
 
     # ── 4×4 Matrix Keypad ────────────────────────────────────
     # Row pins: R4→R1 (top to bottom on the physical remote)
@@ -111,21 +112,44 @@ class Config:
     WIFI_SSID     = _WIFI_SSID
     WIFI_PASSWORD = _WIFI_PASSWORD
 
-    # ── MQTT / HiveMQ Cloud (loaded from secrets.py) ─────────
     # ── MQTT / HiveMQ Cloud ───────────────────────────────────
     MQTT_CLUSTER_URL = _MQTT_CLUSTER_URL
     MQTT_PORT        = _MQTT_PORT
-    MQTT_USERNAME = _MQTT_USERNAME
-    MQTT_PASSWORD = _MQTT_PASSWORD
-    MQTT_USE_TLS  = True   # always TLS for cloud broker
     MQTT_USERNAME    = _MQTT_USERNAME
     MQTT_PASSWORD    = _MQTT_PASSWORD
     MQTT_USE_TLS     = True   # always TLS for cloud broker (port 8883)
 
     # ── Business constants ────────────────────────────────────
-    WARNING_THRESHOLD_KWH = 5.0   # kWh threshold for WARNING state
-    LOOP_MS               = 100   # Main loop delay in milliseconds
     WARNING_THRESHOLD_KWH = 5.0    # kWh threshold for WARNING state
     LOOP_MS               = 100    # Main loop delay in milliseconds
     TELEMETRY_INTERVAL_MS = 30000  # Telemetry interval (30s as per guide)
     FIRMWARE_VERSION      = "v1.2.0-dual"
+
+    @classmethod
+    def save_meter_serials(cls, serial_c0: str, serial_c1: str) -> bool:
+        """Persists meter serial numbers into config.json for future boots."""
+        try:
+            try:
+                import ujson as _json
+            except ImportError:
+                import json as _json
+
+            data = {}
+            try:
+                with open("config.json", "r") as f:
+                    data = _json.load(f)
+            except Exception:
+                data = {}
+
+            data["meter_serial_c0"] = str(serial_c0).strip()
+            data["meter_serial_c1"] = str(serial_c1).strip()
+
+            with open("config.json", "w") as f:
+                _json.dump(data, f)
+
+            cls.METER_SERIAL_C0 = str(serial_c0).strip()
+            cls.METER_SERIAL_C1 = str(serial_c1).strip()
+            return True
+        except Exception as e:
+            print("[Config] Error saving config.json:", e)
+            return False

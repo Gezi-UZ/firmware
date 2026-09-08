@@ -58,7 +58,7 @@ def main() -> None:
     relay_c0 = RelayController(Config.RELAY_PIN_C0, Config.RELAY_ACTIVE_LOW)
     relay_c1 = RelayController(Config.RELAY_PIN_C1, Config.RELAY_ACTIVE_LOW)
 
-    leds     = StatusLeds(Config.GREEN_PIN, Config.RED_PIN)
+    leds     = StatusLeds(Config.GREEN_PIN, Config.RED_PIN, Config.STATUS_LED_TIMER_ID)
     monitor  = PzemMonitor(
         Config.PZEM_TX, Config.PZEM_RX,
         simulate=Config.PZEM_SIMULATE,
@@ -99,8 +99,29 @@ def main() -> None:
         meter_c1=meter_c1, relay_c1=relay_c1, repo_c1=repo_c1
     )
 
-    # Wire up the MQTT callback for remote commands
+    def on_device_config(payload: dict) -> None:
+        c0 = str(payload.get("meter_serial_c0") or payload.get("c0") or "").strip()
+        c1 = str(payload.get("meter_serial_c1") or payload.get("c1") or "").strip()
+
+        updated = False
+        if c0 and c0 != meter_c0.serial_number:
+            print(f"[Provisioning] Canal 0 serial updated: {meter_c0.serial_number} -> {c0}")
+            meter_c0.serial_number = c0
+            updated = True
+
+        if c1 and c1 != meter_c1.serial_number:
+            print(f"[Provisioning] Canal 1 serial updated: {meter_c1.serial_number} -> {c1}")
+            meter_c1.serial_number = c1
+            updated = True
+
+        if updated:
+            Config.save_meter_serials(meter_c0.serial_number, meter_c1.serial_number)
+            mqtt.update_meter_serials(meter_c0.serial_number, meter_c1.serial_number)
+            print(f"[Provisioning] Serials saved to config.json: C0={meter_c0.serial_number}, C1={meter_c1.serial_number}")
+
+    # Wire up the MQTT callbacks for remote commands & dynamic device configuration
     mqtt.set_command_callback(uc_remote_cmd.execute)
+    mqtt.set_config_callback(on_device_config)
 
     # Connect to HiveMQ Cloud & announce presence (Hello)
     if wifi_ok and mqtt.connect():
@@ -131,18 +152,20 @@ def main() -> None:
         # D. Publish Continuous Telemetry (every 30s as specified in guide)
         if time.ticks_diff(now, last_telemetry_ms) >= Config.TELEMETRY_INTERVAL_MS:
             if mqtt.is_connected:
-                mqtt.publish_telemetry(
-                    serial=Config.METER_SERIAL_C0,
-                    kwh_saldo=meter_c0.balance_kwh,
-                    relay_state=relay_c0.is_active,
-                    reading=uc_energy.last_reading_c0
-                )
-                mqtt.publish_telemetry(
-                    serial=Config.METER_SERIAL_C1,
-                    kwh_saldo=meter_c1.balance_kwh,
-                    relay_state=relay_c1.is_active,
-                    reading=uc_energy.last_reading_c1
-                )
+                if meter_c0.serial_number:
+                    mqtt.publish_telemetry(
+                        serial=meter_c0.serial_number,
+                        kwh_saldo=meter_c0.balance_kwh,
+                        relay_state=relay_c0.is_active,
+                        reading=uc_energy.last_reading_c0
+                    )
+                if meter_c1.serial_number:
+                    mqtt.publish_telemetry(
+                        serial=meter_c1.serial_number,
+                        kwh_saldo=meter_c1.balance_kwh,
+                        relay_state=relay_c1.is_active,
+                        reading=uc_energy.last_reading_c1
+                    )
             last_telemetry_ms = now
 
         time.sleep_ms(Config.LOOP_MS)

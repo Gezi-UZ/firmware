@@ -23,10 +23,10 @@ class StatusLeds(ILeds):
 
     BLINK_FREQ_HZ = 1   # 1 Hz blink → LED on 500 ms / off 500 ms
 
-    def __init__(self, green_pin: int, red_pin: int):
+    def __init__(self, green_pin: int, red_pin: int, timer_id: int = 0):
         self._green = Pin(green_pin, Pin.OUT, value=0)
         self._red   = Pin(red_pin,   Pin.OUT, value=0)
-        self._timer = Timer(-1)           # virtual timer (software)
+        self._timer = Timer(timer_id)         # Hardware timer (ESP32 supports IDs 0..3)
         self._blinking      = False
         self._current_state = None        # track last state to skip redundant work
 

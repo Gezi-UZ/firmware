@@ -54,6 +54,7 @@ class MqttClient:
         self._connected = False
         self._last_reconnect_attempt = 0
         self._on_cmd_callback = None
+        self._on_config_callback = None
         self._last_mac = client_id
         self._last_ip = ""
 
@@ -98,6 +99,11 @@ class MqttClient:
             print(
                 f"[MQTT] Connected successfully to HiveMQ ({self._broker_host}:{self._port})"
             )
+
+            # Subscribe to dynamic device configuration topic (QoS 1)
+            config_topic = f"gezi/v1/{self._client_id}/config"
+            self._client.subscribe(config_topic, qos=1)
+            print(f"[MQTT] Subscribed to {config_topic}")
 
             # Subscribe to command topics for both meters (QoS 1)
             if self._serial_c0:
@@ -234,6 +240,38 @@ class MqttClient:
         """
         self._on_cmd_callback = callback
 
+    def set_config_callback(self, callback) -> None:
+        """
+        Register callback function for dynamic device configuration from backend.
+        Signature: callback(payload: dict)
+        """
+        self._on_config_callback = callback
+
+    def update_meter_serials(self, new_serial_c0: str, new_serial_c1: str) -> None:
+        """Dynamically update subscriptions to meter command topics."""
+        if not self._client or not self._connected:
+            self._serial_c0 = new_serial_c0
+            self._serial_c1 = new_serial_c1
+            return
+
+        if new_serial_c0 and new_serial_c0 != self._serial_c0:
+            self._serial_c0 = new_serial_c0
+            topic_c0 = f"credelec/meter/{new_serial_c0}/cmd"
+            try:
+                self._client.subscribe(topic_c0, qos=1)
+                print(f"[MQTT] Dynamic subscribe: {topic_c0}")
+            except Exception as e:
+                print(f"[MQTT] Error subscribing to {topic_c0}:", e)
+
+        if new_serial_c1 and new_serial_c1 != self._serial_c1:
+            self._serial_c1 = new_serial_c1
+            topic_c1 = f"credelec/meter/{new_serial_c1}/cmd"
+            try:
+                self._client.subscribe(topic_c1, qos=1)
+                print(f"[MQTT] Dynamic subscribe: {topic_c1}")
+            except Exception as e:
+                print(f"[MQTT] Error subscribing to {topic_c1}:", e)
+
     def _on_message(self, topic, msg) -> None:
         """Internal callback fired by umqtt when a message arrives."""
         try:
@@ -243,8 +281,15 @@ class MqttClient:
 
             print(f"[MQTT] Received on {topic_str}: {payload}")
 
-            # Extract meter serial number from topic 'credelec/meter/{serial}/cmd'
             parts = topic_str.split("/")
+
+            # Check if this is a device configuration message (gezi/v1/{mac}/config)
+            if len(parts) == 4 and parts[0] == "gezi" and parts[1] == "v1" and parts[3] == "config":
+                if self._on_config_callback:
+                    self._on_config_callback(payload)
+                return
+
+            # Extract meter serial number from topic 'credelec/meter/{serial}/cmd'
             if len(parts) >= 3 and parts[0] == "credelec" and parts[1] == "meter":
                 serial = parts[2]
             else:
