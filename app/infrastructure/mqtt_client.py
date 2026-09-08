@@ -34,8 +34,6 @@ class MqttClient:
         meter_serial_c0: str = "",
         meter_serial_c1: str = "",
     ):
-
-        # We import here so environments without umqtt don't crash at startup
         try:
             from umqtt.simple import MQTTClient as _UMqtt  # pyright: ignore[reportMissingImports]
         except ImportError:
