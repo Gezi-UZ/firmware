@@ -25,8 +25,11 @@ class Meter:
       - Only the backend can grant credit (token validated upstream).
     """
 
-    def __init__(self, initial_kwh: float = 0.0):
+    def __init__(self, initial_kwh: float = 0.0, serial_number: str = "", channel: int = 0):
         self._kwh = float(initial_kwh)
+
+        self.serial_number = serial_number
+        self.channel = channel
 
     # ── Commands ──────────────────────────────────────────────────────────────
 

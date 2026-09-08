@@ -47,8 +47,35 @@ class WifiService:
         """Return True if the station interface is currently connected."""
         return self._wlan.isconnected()
 
+    def get_mac_address(self) -> str:
+        """
+        Returns the formatted MAC address string (e.g. 'ec:60:04:xx:yy:zz').
+        Used for Auto-Discovery (Hello) and unique client identification.
+        """
+        try:
+            self._wlan.active(True)
+            # pyrefly: ignore [missing-import]
+            import ubinascii
+            return ubinascii.hexlify(self._wlan.config("mac"), ":").decode()
+        except Exception:
+            try:
+                import binascii
+                # Fallback for standard Python / testing
+                mac_bytes = self._wlan.config("mac")
+                return binascii.hexlify(mac_bytes, ":").decode()
+            except Exception:
+                return "00:00:00:00:00:00"
+
+    def get_ip(self) -> str:
+        """Returns the assigned IP address string."""
+        try:
+            return self._wlan.ifconfig()[0]
+        except Exception:
+            return "0.0.0.0"
+
     def disconnect(self) -> None:
         """Disconnect and deactivate the WiFi interface."""
         self._wlan.disconnect()
         self._wlan.active(False)
         print("[WiFi] Disconnected")
+

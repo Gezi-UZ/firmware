@@ -21,17 +21,19 @@ class PzemMonitor(IEnergyMonitor):
     ---------------
     When simulate=True (Config.PZEM_SIMULATE), generates synthetic readings
     at a constant simulated load (_SIM_POWER_W). No UART hardware needed.
+    Supports dual channels (channel 0 and channel 1).
     """
 
     READ_INTERVAL_MS = 1_000   # poll at most once per second
-    _SIM_POWER_W     = 100.0   # simulated load in Watts
+    _SIM_POWER_W     = 100.0   # simulated load in Watts for C0
 
     # Modbus RTU: read 10 input registers from address 0x01
     _CMD = bytes([0x01, 0x04, 0x00, 0x00, 0x00, 0x0A, 0x70, 0x0D])
 
     def __init__(self, tx_pin: int, rx_pin: int, simulate: bool = True):
         self._simulate = simulate
-        self._last_ms  = 0
+        self._last_ms_c0 = 0
+        self._last_ms_c1 = 0
 
         if not simulate:
             from machine import UART
@@ -42,39 +44,51 @@ class PzemMonitor(IEnergyMonitor):
                 rx=rx_pin,
                 timeout=200,
             )
+        else:
+            self._uart = None
 
-    def read(self):
+    def read(self, channel: int = 0):
         """
         Non-blocking. Returns EnergyReading or None.
+        Supports dual channels (channel=0 or channel=1).
         Enforces a minimum READ_INTERVAL_MS between actual sensor polls.
         """
         now = time.ticks_ms()
-        if time.ticks_diff(now, self._last_ms) < self.READ_INTERVAL_MS:
-            return None
-        self._last_ms = now
+        last_ms = self._last_ms_c1 if channel == 1 else self._last_ms_c0
 
-        return self._sim_read() if self._simulate else self._uart_read()
+        if time.ticks_diff(now, last_ms) < self.READ_INTERVAL_MS:
+            return None
+
+        if channel == 1:
+            self._last_ms_c1 = now
+        else:
+            self._last_ms_c0 = now
+
+        return self._sim_read(channel) if self._simulate else self._uart_read(channel)
 
     # ── Simulation ────────────────────────────────────────────────────────────
 
-    def _sim_read(self) -> EnergyReading:
+    def _sim_read(self, channel: int = 0) -> EnergyReading:
         """
-        Generate a synthetic reading based on a constant simulated load.
+        Generate a synthetic reading based on a simulated load.
         delta_kwh = (power_W / 1000) × elapsed_hours
         """
+        load_w = self._SIM_POWER_W if channel == 0 else 80.0
         elapsed_h = self.READ_INTERVAL_MS / 3_600_000.0
-        delta_kwh = (self._SIM_POWER_W / 1000.0) * elapsed_h
+        delta_kwh = (load_w / 1000.0) * elapsed_h
         return EnergyReading(
             voltage_v = 220.0,
-            current_a = round(self._SIM_POWER_W / 220.0, 3),
-            power_w   = self._SIM_POWER_W,
+            current_a = round(load_w / 220.0, 3),
+            power_w   = load_w,
             delta_kwh = delta_kwh,
         )
 
     # ── Real UART ─────────────────────────────────────────────────────────────
 
-    def _uart_read(self):
+    def _uart_read(self, channel: int = 0):
         """Request and parse a PZEM-004T Modbus RTU response."""
+        if not self._uart:
+            return None
         try:
             self._uart.write(self._CMD)
             time.sleep_ms(100)

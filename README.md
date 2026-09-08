@@ -24,10 +24,13 @@ Este projeto foi desenhado para correr num **ESP32** (ex: ESP32-WROVER-E). Aqui 
 | Componente | Pino ESP32 | Notas / Funcionalidade |
 | :--- | :--- | :--- |
 | **LCD 1602 (I2C)** | SDA: `21`, SCL: `22` | Mostra o saldo e buffer de 20 dígitos (espaçados a cada 4). |
+| **LCD 1602 (I2C)** | SDA: `21`, SCL: `22` | Mostra o saldo de ambos os contadores (C0 e C1) ou buffer de 20 dígitos. |
 | **Teclado 4x4** | Linhas: `26`, `27`, `14`, `0` <br> Colunas: `32`, `33`, `25`, `18` | Inserção de tokens. Botão `A` valida, `C` limpa, `B` apaga um dígito. |
 | **PZEM-004T (V3.0)**| RX: `16`, TX: `17` | Medição de energia AC (Tensão, Corrente, Potência, kWh). |
 | **Módulo Relé (5V)** | PIN: `19` | Corta a corrente quando o saldo chega a 0 kWh (Active-LOW). |
 | **LED Verde** | PIN: `5` | Ligado quando há crédito (`CREDIT` e `WARNING`). |
+| **Módulo Relé 2 Canais (5V)** | IN1: `19` (Canal 0)<br>IN2: `15` (Canal 1) | Corta a corrente do respetivo canal quando o saldo chega a 0 kWh (Active-LOW). |
+| **LED Verde** | PIN: `5` | Ligado quando há crédito ativo (`CREDIT` e `WARNING`). |
 | **LED Vermelho** | PIN: `4` | Pisca (1Hz) no `WARNING` (< 5kWh). Fixo no `NO_CREDIT`. |
 
 > **Nota para testes:** O `PZEM-004T` pode ser simulado alterando `PZEM_SIMULATE = True` no `config.py`. Isto permite testar o decréscimo de saldo na maquete de demonstração sem a necessidade perigosa de usar 220V AC.
@@ -37,10 +40,21 @@ Este projeto foi desenhado para correr num **ESP32** (ex: ESP32-WROVER-E). Aqui 
 ## Comunicação Cloud (MQTT & FastAPI)
 
 O ESP32 não funciona isolado. Ele é o *Edge Node* numa arquitetura de IoT Cloud:
+O ESP32 atua como um *Edge Node* que gere fisicamente dois contadores:
 
 1. **Recarga via teclado (HTTP POST):** Quando um token de 20 dígitos é inserido, o ESP32 faz um pedido síncrono ao backend FastAPI para validação (hashing/idempotência contra o Supabase). O ESP32 **nunca** valida tokens localmente.
 2. **Telemetria (MQTT):** A cada segundo, o ESP32 publica o seu saldo e consumos para o HiveMQ Cloud no tópico `gezi/{device_id}/telemetry`.
 3. **Recarga remota (MQTT):** O ESP32 subscreve ao tópico `gezi/{device_id}/cmd/credit`. Se o utilizador comprar energia via Mobile App (Flutter), o FastAPI avisa o ESP32 instantaneamente via HiveMQ, o ESP32 adiciona o crédito e acende o LCD a dizer "RECARGA REMOTA".
+1. **Auto-Discovery (Hello):** No boot e conexão ao broker, publica no tópico `gezi/v1/{mac_address}/hello` com `firmware: v1.2.0-dual` e IP para registo automático no backend.
+2. **Subscrição de Comandos (CMD):** O ESP32 subscreve aos tópicos dos dois contadores:
+   - `credelec/meter/{meter_serial_c0}/cmd`
+   - `credelec/meter/{meter_serial_c1}/cmd`
+3. **Recarga Remota & Confirmação (ACK):** Ao receber `APPLY_CREDITS`, aplica os kWh ao contador correspondente, atualiza a Flash e o respetivo relé, e responde obrigatoriamente no tópico `credelec/meter/{serial}/ack` (`command_id`, `status: ACK`, `applied_kwh`).
+4. **Telemetria Contínua:** A cada 30 segundos, publica o saldo, estado do relé e medições elétricas em:
+   - `credelec/meter/{meter_serial_c0}/telemetry`
+   - `credelec/meter/{meter_serial_c1}/telemetry`
+5. **Recarga via teclado (HTTP POST):** Quando um token de 20 dígitos é inserido, o ESP32 faz um pedido síncrono ao backend FastAPI para validação.
+
 
 ---
 

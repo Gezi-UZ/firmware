@@ -8,6 +8,19 @@
 
 
 # ── Load credentials from secrets.py (gitignored) ─────────────────────────
+# ── Load credentials from config.json (priority) or secrets.py (fallback) ───
+_config_json = {}
+try:
+    try:
+        # pyrefly: ignore [missing-import]
+        import ujson as _json
+    except ImportError:
+        import json as _json
+    with open("config.json", "r") as _f:
+        _config_json = _json.load(_f)
+except Exception:
+    _config_json = {}
+
 try:
     import secrets as _s
     _WIFI_SSID     = _s.WIFI_SSID
@@ -28,6 +41,21 @@ except ImportError:
     _MQTT_USERNAME = _MQTT_PASSWORD = ""
     _API_BASE_URL = ""
     _DEVICE_ID = "GEZI-ESP32-UNKNOWN"
+    _s = None
+
+_WIFI_SSID = _config_json.get("wifi_ssid", getattr(_s, "WIFI_SSID", ""))
+_WIFI_PASSWORD = _config_json.get("wifi_pass", getattr(_s, "WIFI_PASSWORD", ""))
+_MQTT_CLUSTER_URL = _config_json.get("mqtt_broker", getattr(_s, "MQTT_CLUSTER_URL", ""))
+_MQTT_PORT = int(_config_json.get("mqtt_port", getattr(_s, "MQTT_PORT", 8883)))
+_MQTT_USERNAME = _config_json.get("mqtt_user", getattr(_s, "MQTT_USERNAME", ""))
+_MQTT_PASSWORD = _config_json.get("mqtt_pass", getattr(_s, "MQTT_PASSWORD", ""))
+_METER_SERIAL_C0 = _config_json.get("meter_serial_c0", getattr(_s, "METER_SERIAL_C0", "CRD-2026-00001"))
+_METER_SERIAL_C1 = _config_json.get("meter_serial_c1", getattr(_s, "METER_SERIAL_C1", "CRD-2026-00002"))
+_API_BASE_URL = _config_json.get("api_base_url", getattr(_s, "API_BASE_URL", ""))
+_DEVICE_ID = _config_json.get("device_id", getattr(_s, "DEVICE_ID", "GEZI-ESP32-UNKNOWN"))
+
+if not _s and not _config_json:
+    print("[Config] WARNING: Neither config.json nor secrets.py found. Using defaults.")
 
 
 class Config:
@@ -38,6 +66,12 @@ class Config:
 
     # ── Relay (SRD-05VDC, active-LOW module) ─────────────────
     RELAY_PIN        = 19
+    # ── 2-Channel Relay Module (SRD-05VDC, active-LOW) ─────────
+    # IN1 on 2-relay module -> GPIO 19 (Channel 0)
+    # IN2 on 2-relay module -> GPIO 15 (Channel 1)
+    RELAY_PIN        = 19   # Backwards compatibility
+    RELAY_PIN_C0     = 19   # IN1 -> Canal 0
+    RELAY_PIN_C1     = 15   # IN2 -> Canal 1
     RELAY_ACTIVE_LOW = True
 
     # ── Status LEDs ───────────────────────────────────────────
@@ -64,20 +98,34 @@ class Config:
     PZEM_SIMULATE = True  # Set False when physical PZEM is wired
 
     # ── Backend (loaded from secrets.py) ────────────────────
+    # ── Meter Serials (Dual Channel) ──────────────────────────
+    METER_SERIAL_C0 = _METER_SERIAL_C0
+    METER_SERIAL_C1 = _METER_SERIAL_C1
+
+    # ── Backend ───────────────────────────────────────────────
     API_BASE_URL = _API_BASE_URL
     DEVICE_ID    = _DEVICE_ID
 
     # ── WiFi (loaded from secrets.py) ────────────────────────
+    # ── WiFi ──────────────────────────────────────────────────
     WIFI_SSID     = _WIFI_SSID
     WIFI_PASSWORD = _WIFI_PASSWORD
 
     # ── MQTT / HiveMQ Cloud (loaded from secrets.py) ─────────
+    # ── MQTT / HiveMQ Cloud ───────────────────────────────────
     MQTT_CLUSTER_URL = _MQTT_CLUSTER_URL
     MQTT_PORT        = _MQTT_PORT
     MQTT_USERNAME = _MQTT_USERNAME
     MQTT_PASSWORD = _MQTT_PASSWORD
     MQTT_USE_TLS  = True   # always TLS for cloud broker
+    MQTT_USERNAME    = _MQTT_USERNAME
+    MQTT_PASSWORD    = _MQTT_PASSWORD
+    MQTT_USE_TLS     = True   # always TLS for cloud broker (port 8883)
 
     # ── Business constants ────────────────────────────────────
     WARNING_THRESHOLD_KWH = 5.0   # kWh threshold for WARNING state
     LOOP_MS               = 100   # Main loop delay in milliseconds
+    WARNING_THRESHOLD_KWH = 5.0    # kWh threshold for WARNING state
+    LOOP_MS               = 100    # Main loop delay in milliseconds
+    TELEMETRY_INTERVAL_MS = 30000  # Telemetry interval (30s as per guide)
+    FIRMWARE_VERSION      = "v1.2.0-dual"

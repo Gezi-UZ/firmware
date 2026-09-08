@@ -15,3 +15,9 @@ MQTT_PASSWORD    = ""
 # Backend API
 API_BASE_URL  = ""  # Ex: https://gezi-token-service.up.railway.app
 DEVICE_ID     = ""  # Ex: GEZI-ESP32-001
+DEVICE_ID     = ""  # Ex: GEZI-ESP32-001 (Opcional, pois usa MAC por defeito)
+
+# Contadores Duplos (Números de Série associados no backend)
+METER_SERIAL_C0 = "CRD-2026-00001"
+METER_SERIAL_C1 = "CRD-2026-00002"
+

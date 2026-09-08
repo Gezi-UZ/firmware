@@ -11,12 +11,14 @@ class IDisplay:
     specific LCD hardware.
     """
 
-    def show_state(self, meter) -> None:
+    def show_state(self, meter, meter_c1=None) -> None:
         """
         Render the normal operating screen.
-        Shows the current supply state label and kWh balance.
+        Shows the supply state and balance for meter (and optionally meter_c1).
         """
         raise NotImplementedError
+
+
 
     def show_token_buffer(self, buffer: list) -> None:
         """

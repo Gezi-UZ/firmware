@@ -1,5 +1,7 @@
 # main.py — Composition Root
 # Instantiates all concrete adapters and injects them into use-cases.
+# Orchestrates Dual-Channel Meters (Channel 0 & Channel 1), HiveMQ TLS with SNI,
+# Auto-Discovery (Hello), Remote Commands (APPLY_CREDITS with ACK), and continuous telemetry.
 # Zero business logic lives here.
 
 import time
@@ -32,74 +34,119 @@ from app.infrastructure.mqtt_client import MqttClient
 
 
 def main() -> None:
-    # ── 1. Infrastructure ─────────────────────────────────────────────────────
+    print("=" * 50)
+    print("  GEZI IOT FIRMWARE — DUAL-CHANNEL METER")
+    print(f"  Version: {Config.FIRMWARE_VERSION}")
+    print("=" * 50)
+
+    # ── 1. Infrastructure (WiFi & Identification) ─────────────────────────────
     wifi = WifiService(Config.WIFI_SSID, Config.WIFI_PASSWORD)
-    wifi.connect()  # blocking — must succeed before HTTP calls
+    wifi_ok = wifi.connect()  # Attempt connection
 
-    mqtt = MqttClient(
-        broker_host=Config.MQTT_CLUSTER_URL,
-        device_id=Config.DEVICE_ID,
-        port=Config.MQTT_PORT,
-        username=Config.MQTT_USERNAME,
-        password=Config.MQTT_PASSWORD,
-        use_tls=Config.MQTT_USE_TLS
-    )
+    mac = wifi.get_mac_address()
+    ip = wifi.get_ip()
+    print(f"[Boot] MAC Address : {mac}")
+    print(f"[Boot] IP Address  : {ip}")
+    print(f"[Boot] Meter C0    : {Config.METER_SERIAL_C0}")
+    print(f"[Boot] Meter C1    : {Config.METER_SERIAL_C1}")
 
-    # ── 2. Adapters ───────────────────────────────────────────────────────────
-    display   = LcdDisplay(Config.LCD_SDA, Config.LCD_SCL, Config.LCD_ADDR)
-    keypad    = MatrixKeypad(Config.ROW_PINS, Config.COL_PINS, Config.KEYPAD_MAP)
-    relay     = RelayController(Config.RELAY_PIN, Config.RELAY_ACTIVE_LOW)
-    leds      = StatusLeds(Config.GREEN_PIN, Config.RED_PIN)
-    monitor   = PzemMonitor(
+    # ── 2. Adapters & Persistence ─────────────────────────────────────────────
+    display  = LcdDisplay(Config.LCD_SDA, Config.LCD_SCL, Config.LCD_ADDR)
+    keypad   = MatrixKeypad(Config.ROW_PINS, Config.COL_PINS, Config.KEYPAD_MAP)
+
+    # 2-channel Relay Module: IN1 -> GPIO 19 (C0), IN2 -> GPIO 15 (C1)
+    relay_c0 = RelayController(Config.RELAY_PIN_C0, Config.RELAY_ACTIVE_LOW)
+    relay_c1 = RelayController(Config.RELAY_PIN_C1, Config.RELAY_ACTIVE_LOW)
+
+    leds     = StatusLeds(Config.GREEN_PIN, Config.RED_PIN)
+    monitor  = PzemMonitor(
         Config.PZEM_TX, Config.PZEM_RX,
         simulate=Config.PZEM_SIMULATE,
     )
-    validator = HttpTokenValidator(Config.API_BASE_URL, Config.DEVICE_ID)
-    
-    # ── 2b. Persistence Adapter
-    repo = FlashMeterRepository(filename="meter_state.json", save_threshold_kwh=0.1)
+    validator = HttpTokenValidator(Config.API_BASE_URL, mac)
 
-    # ── 3. Domain ─────────────────────────────────────────────────────────────
-    # Load state from non-volatile flash memory so we survive reboots
-    initial_kwh = repo.load()
-    meter = Meter(initial_kwh=initial_kwh)
+    # Separate Flash repositories for independent wear-leveling per channel
+    repo_c0 = FlashMeterRepository(filename="meter_state_c0.json", save_threshold_kwh=0.1)
+    repo_c1 = FlashMeterRepository(filename="meter_state_c1.json", save_threshold_kwh=0.1)
 
-    # ── 4. Use-cases (dependency injection) ───────────────────────────────────
-    uc_energy     = ProcessEnergyReading(monitor, meter, repo)
-    uc_validate   = ValidateToken(validator, meter, display, leds, relay, repo)
+    # ── 3. Domain Entities ────────────────────────────────────────────────────
+    initial_kwh_c0 = repo_c0.load()
+    meter_c0 = Meter(initial_kwh=initial_kwh_c0, serial_number=Config.METER_SERIAL_C0, channel=0)
+
+    initial_kwh_c1 = repo_c1.load()
+    meter_c1 = Meter(initial_kwh=initial_kwh_c1, serial_number=Config.METER_SERIAL_C1, channel=1)
+
+    # ── 4. MQTT Client (HiveMQ Cloud TLS 8883) ────────────────────────────────
+    mqtt = MqttClient(
+        broker_host=Config.MQTT_CLUSTER_URL,
+        client_id=mac,
+        port=Config.MQTT_PORT,
+        username=Config.MQTT_USERNAME,
+        password=Config.MQTT_PASSWORD,
+        use_tls=Config.MQTT_USE_TLS,
+        meter_serial_c0=Config.METER_SERIAL_C0,
+        meter_serial_c1=Config.METER_SERIAL_C1
+    )
+
+    # ── 5. Use-cases (Dependency Injection) ───────────────────────────────────
+    uc_energy     = ProcessEnergyReading(monitor, meter_c0, repo_c0, meter_c1, repo_c1)
+    uc_validate   = ValidateToken(validator, meter_c0, display, leds, relay_c0, repo_c0)
     uc_keypad     = HandleKeypadInput(keypad, display, uc_validate)
-    uc_outputs    = UpdateOutputs(display, leds, relay)
-    uc_remote_cmd = HandleRemoteCommand(meter, display, leds, relay, mqtt, repo)
+    uc_outputs    = UpdateOutputs(display, leds, relay_c0, relay_c1)
+    uc_remote_cmd = HandleRemoteCommand(
+        meter_c0=meter_c0, relay_c0=relay_c0, repo_c0=repo_c0,
+        display=display, leds=leds, mqtt_client=mqtt,
+        meter_c1=meter_c1, relay_c1=relay_c1, repo_c1=repo_c1
+    )
 
     # Wire up the MQTT callback for remote commands
     mqtt.set_command_callback(uc_remote_cmd.execute)
-    mqtt.connect() # Attempt connection to HiveMQ
 
-    # ── 5. Initial render ─────────────────────────────────────────────────────
-    uc_outputs.execute(meter)
+    # Connect to HiveMQ Cloud & announce presence (Hello)
+    if wifi_ok and mqtt.connect():
+        mqtt.publish_hello(mac, ip, firmware=Config.FIRMWARE_VERSION)
 
-    # ── 6. Main loop ──────────────────────────────────────────────────────────
+    # ── 6. Initial render ─────────────────────────────────────────────────────
+    uc_outputs.execute(meter_c0, meter_c1)
+
+    # ── 7. Main loop ──────────────────────────────────────────────────────────
     last_telemetry_ms = 0
-    TELEMETRY_INTERVAL_MS = 1000  # Send telemetry every 1 second
 
     while True:
-        # A. Process local physical inputs/sensors
-        uc_energy.execute()   # deduz consumo medido (ou simulado)
-        uc_keypad.execute()   # lê teclado → acumula token → valida se [A]
-        
-        # B. Process incoming remote commands (from FastAPI via HiveMQ)
-        mqtt.check_messages() 
-        
-        # C. Update physical outputs
-        uc_outputs.execute(meter)  # actualiza LCD, LEDs e relé
-        
-        # D. Publish Telemetry
         now = time.ticks_ms()
-        if time.ticks_diff(now, last_telemetry_ms) >= TELEMETRY_INTERVAL_MS:
-            mqtt.publish_telemetry(meter) # Pushes state to FastAPI
+
+        # A. Process local physical inputs and sensor consumption
+        uc_energy.execute()   # deducts consumption on active channels
+        uc_keypad.execute()   # scans keypad -> accumulates token -> validates if [A]
+
+        # B. Process incoming remote commands (from FastAPI via HiveMQ)
+        mqtt.check_messages()
+
+        # B2. Resilient auto-reconnection if network dropped
+        mqtt.reconnect_if_needed(now, interval_ms=10000)
+
+        # C. Update physical outputs (Display dual channels, Relays, LEDs)
+        uc_outputs.execute(meter_c0, meter_c1)
+
+        # D. Publish Continuous Telemetry (every 30s as specified in guide)
+        if time.ticks_diff(now, last_telemetry_ms) >= Config.TELEMETRY_INTERVAL_MS:
+            if mqtt.is_connected:
+                mqtt.publish_telemetry(
+                    serial=Config.METER_SERIAL_C0,
+                    kwh_saldo=meter_c0.balance_kwh,
+                    relay_state=relay_c0.is_active,
+                    reading=uc_energy.last_reading_c0
+                )
+                mqtt.publish_telemetry(
+                    serial=Config.METER_SERIAL_C1,
+                    kwh_saldo=meter_c1.balance_kwh,
+                    relay_state=relay_c1.is_active,
+                    reading=uc_energy.last_reading_c1
+                )
             last_telemetry_ms = now
-            
+
         time.sleep_ms(Config.LOOP_MS)
 
 
-main()
+if __name__ == "__main__":
+    main()

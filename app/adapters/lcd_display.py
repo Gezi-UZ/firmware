@@ -45,12 +45,23 @@ class LcdDisplay(IDisplay):
 
     # ── IDisplay ─────────────────────────────────────────────────────────────
 
-    def show_state(self, meter) -> None:
+    def show_state(self, meter, meter_c1=None) -> None:
         """
         Normal operating screen.
-          Row 0: state label
-          Row 1: kWh balance
+        If meter_c1 is provided, renders dual meter screen:
+          Row 0: C0: 12.34kWh  ON
+          Row 1: C1:  0.00kWh OFF
+        If only one meter is provided, renders single meter screen.
         """
+
+        if meter_c1 is not None:
+            st0 = " ON" if meter.supply_active else "OFF"
+            st1 = " ON" if meter_c1.supply_active else "OFF"
+            row0 = "C0:{:6.2f}kWh {:>3}".format(meter.balance_kwh, st0)
+            row1 = "C1:{:6.2f}kWh {:>3}".format(meter_c1.balance_kwh, st1)
+            self._write(row0, row1)
+            return
+
         state = meter.state
         if state == NO_CREDIT:
             row0 = "*** SEM CREDITO *"

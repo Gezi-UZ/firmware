@@ -19,9 +19,17 @@ class RelayController(IRelay):
     """
 
     def __init__(self, pin: int, active_low: bool = True):
-        self._pin        = Pin(pin, Pin.OUT)
+        self._pin = Pin(pin, Pin.OUT)
         self._active_low = active_low
+        self._pin = Pin(pin, Pin.OUT)
+        self._active_low = active_low
+        self._current_active = False
         self._set_relay(False)  # start safe — relay OPEN
+
+    @property
+    def is_active(self) -> bool:
+        """Returns True if the relay is closed (power ON)."""
+        return self._current_active
 
     def update(self, meter) -> None:
         """Close relay when meter has credit; open when no credit."""
@@ -33,6 +41,7 @@ class RelayController(IRelay):
         """
         Map logical 'active' to the correct pin level for the module polarity.
         """
+        self._current_active = bool(active)
         if self._active_low:
             self._pin.value(0 if active else 1)
         else:

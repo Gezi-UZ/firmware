@@ -25,10 +25,12 @@ class FlashMeterRepository:
                 loaded_kwh = float(data.get("kwh", 0.0))
                 self._last_saved_kwh = loaded_kwh
                 print(f"[FlashRepo] Loaded existing balance: {loaded_kwh} kWh")
+                print(f"[FlashRepo:{self._filename}] Loaded existing balance: {loaded_kwh} kWh")
                 return loaded_kwh
         except Exception:
             # File doesn't exist or is corrupted (first boot)
             print("[FlashRepo] No valid state found. Starting at 0.0 kWh.")
+            print(f"[FlashRepo:{self._filename}] No valid state found. Starting at 0.0 kWh.")
             self._last_saved_kwh = 0.0
             return 0.0
 
@@ -45,5 +47,8 @@ class FlashMeterRepository:
                 ujson.dump({"kwh": kwh}, f)
             self._last_saved_kwh = kwh
             print(f"[FlashRepo] State saved to flash: {kwh} kWh")
+            print(f"[FlashRepo:{self._filename}] State saved to flash: {kwh} kWh")
         except Exception as e:
             print(f"[FlashRepo] ERROR saving state: {e}")
+            print(f"[FlashRepo:{self._filename}] ERROR saving state: {e}")
+
