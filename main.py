@@ -90,7 +90,18 @@ def main() -> None:
 
     # ── 5. Use-cases (Dependency Injection) ───────────────────────────────────
     uc_energy     = ProcessEnergyReading(monitor, meter_c0, repo_c0, meter_c1, repo_c1)
-    uc_validate   = ValidateToken(validator, meter_c0, display, leds, relay_c0, repo_c0)
+    uc_validate   = ValidateToken(
+        validator=validator,
+        meter_c0=meter_c0,
+        relay_c0=relay_c0,
+        repo_c0=repo_c0,
+        display=display,
+        leds=leds,
+        meter_c1=meter_c1,
+        relay_c1=relay_c1,
+        repo_c1=repo_c1,
+        mqtt_client=mqtt,
+    )
     uc_keypad     = HandleKeypadInput(keypad, display, uc_validate)
     uc_outputs    = UpdateOutputs(display, leds, relay_c0, relay_c1)
     uc_remote_cmd = HandleRemoteCommand(
@@ -138,7 +149,7 @@ def main() -> None:
 
         # A. Process local physical inputs and sensor consumption
         uc_energy.execute()   # deducts consumption on active channels
-        uc_keypad.execute()   # scans keypad -> accumulates token -> validates if [A]
+        uc_keypad.execute()   # scans keypad -> accumulates token -> prompts channel -> validates
 
         # B. Process incoming remote commands (from FastAPI via HiveMQ)
         mqtt.check_messages()
@@ -147,7 +158,13 @@ def main() -> None:
         mqtt.reconnect_if_needed(now, interval_ms=10000)
 
         # C. Update physical outputs (Display dual channels, Relays, LEDs)
-        uc_outputs.execute(meter_c0, meter_c1)
+        # CRITICAL: Only update display if user is NOT typing or in channel prompt!
+        if not uc_keypad.is_active:
+            uc_outputs.execute(meter_c0, meter_c1)
+        else:
+            # Keep relays safely in sync without overwriting the LCD screen
+            relay_c0.update(meter_c0)
+            relay_c1.update(meter_c1)
 
         # D. Publish Continuous Telemetry (every 30s as specified in guide)
         if time.ticks_diff(now, last_telemetry_ms) >= Config.TELEMETRY_INTERVAL_MS:

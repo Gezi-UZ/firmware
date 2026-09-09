@@ -37,6 +37,13 @@ class IDisplay:
         """
         raise NotImplementedError
 
+    def show_prompt(self, line1: str, line2: str = "") -> None:
+        """
+        Show an interactive prompt screen (e.g. channel selection).
+        Non-blocking (does not sleep).
+        """
+        raise NotImplementedError
+
     def show_error(self, error_code: str) -> None:
         """
         Map a backend error code to a localised message and display it.

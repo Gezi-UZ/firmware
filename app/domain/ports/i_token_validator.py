@@ -14,7 +14,7 @@ class ITokenValidator:
       the backend.
     """
 
-    def validate(self, token: str):
+    def validate(self, token: str, meter_serial: str = "", channel: int = 0):
         """
         Submit a 20-digit token to the validation service.
 
@@ -22,6 +22,10 @@ class ITokenValidator:
         ----------
         token : str
             The 20-digit numeric string entered by the user.
+        meter_serial : str
+            The meter serial number (up to 11 digits) being recharged.
+        channel : int
+            Target channel (0 or 1).
 
         Returns
         -------
@@ -34,3 +38,4 @@ class ITokenValidator:
         The concrete adapter is responsible for timeout and error handling.
         """
         raise NotImplementedError
+
