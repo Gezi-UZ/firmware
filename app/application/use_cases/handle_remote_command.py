@@ -1,4 +1,4 @@
-# Use-case: Handles incoming MQTT commands from the backend.
+# app/application/use_cases/handle_remote_command.py
 # Use-case: Handles incoming MQTT commands from the backend for dual meters.
 
 from app.domain.entities.meter import Meter
@@ -35,8 +35,39 @@ class HandleRemoteCommand:
 
         if command == "APPLY_CREDITS":
             self._handle_apply_credits(serial_or_cmd, payload)
+        elif command == "SET_BALANCE":
+            self._handle_set_balance(serial_or_cmd, payload)
         else:
             print(f"[RemoteCmd] Unrecognized command '{command}' in payload: {payload}")
+
+    def _handle_set_balance(self, serial: str, payload: dict) -> None:
+        kwh = float(payload.get("kwh", 0.0))
+        command_id = str(payload.get("command_id", "desconhecido"))
+
+        meter, relay, repo, ch_label = self._resolve_meter(serial)
+        if not meter:
+            print(f"[RemoteCmd] Cannot set balance for unrecognized serial '{serial}'")
+            if self.mqtt:
+                self.mqtt.publish_ack(serial, command_id, status="ERROR", applied_kwh=0.0)
+            return
+
+        try:
+            meter._kwh = max(0.0, kwh)
+            if repo:
+                repo.save(meter.balance_kwh, force=True)
+            if relay:
+                relay.update(meter)
+            if self.leds:
+                self.leds.update(meter)
+            if self.display:
+                self.display.show_message(f"SALDO {ch_label}", f"{meter.balance_kwh:.2f} kWh")
+            if self.mqtt:
+                self.mqtt.publish_ack(serial, command_id, status="ACK", applied_kwh=meter.balance_kwh)
+            print(f"[RemoteCmd] Successfully set balance of {ch_label} ({serial}) to {meter.balance_kwh} kWh")
+        except Exception as e:
+            print(f"[RemoteCmd] Exception while setting balance on {serial}:", e)
+            if self.mqtt:
+                self.mqtt.publish_ack(serial, command_id, status="ERROR", applied_kwh=0.0)
 
     def _handle_apply_credits(self, serial: str, payload: dict) -> None:
         kwh = float(payload.get("kwh", 0.0))

@@ -58,12 +58,12 @@ class LcdDisplay(IDisplay):
 
             if addr in devices:
                 self._addr = addr
-            elif 0x3F in devices:
-                print(f"[LCD] Auto-detected LCD at 0x3F (instead of configured {hex(addr)})")
-                self._addr = 0x3F
             elif 0x27 in devices:
                 print(f"[LCD] Auto-detected LCD at 0x27 (instead of configured {hex(addr)})")
                 self._addr = 0x27
+            elif 0x3F in devices:
+                print(f"[LCD] Auto-detected LCD at 0x3F (instead of configured {hex(addr)})")
+                self._addr = 0x3F
             elif devices:
                 print(f"[LCD] Using detected I2C device at {hex(devices[0])}")
                 self._addr = devices[0]
@@ -84,6 +84,10 @@ class LcdDisplay(IDisplay):
     def show_state(self, meter, meter_c1=None) -> None:
         """
         Normal operating screen.
+        If meter_c1 is provided, renders dual meter screen:
+          Row 0: C0: 12.34kWh  ON
+          Row 1: C1:  0.00kWh OFF
+        If only one meter is provided, renders single meter screen.
         Deduplicates I2C traffic: only writes when text actually changes.
         """
         if meter_c1 is not None:
@@ -110,7 +114,11 @@ class LcdDisplay(IDisplay):
         self._write(row0, row1)
 
     def show_token_buffer(self, buffer: list) -> None:
-        """Token entry screen."""
+        """
+        Token entry screen.
+        First 10 digits on row 0, last 10 on row 1.
+        Groups of 4 separated by spaces; empty positions shown as '_'.
+        """
         self._last_row0 = ""
         self._last_row1 = ""
         row0 = self._format_token_half(buffer, 0,  10)
@@ -175,6 +183,7 @@ class LcdDisplay(IDisplay):
         """Unstick I2C bus and re-detect LCD after I2C glitch or power sag."""
         self._last_recovery_ms = time.ticks_ms()
         try:
+            time.sleep_ms(100)
             # 1. Unstick I2C bus: clock out SCL 9 times in GPIO mode to release any hung slave
             try:
                 scl = Pin(self._scl_pin, Pin.OUT)

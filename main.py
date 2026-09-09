@@ -66,8 +66,17 @@ def main() -> None:
     validator = HttpTokenValidator(Config.API_BASE_URL, mac)
 
     # Separate Flash repositories for independent wear-leveling per channel
-    repo_c0 = FlashMeterRepository(filename="meter_state_c0.json", save_threshold_kwh=0.1)
-    repo_c1 = FlashMeterRepository(filename="meter_state_c1.json", save_threshold_kwh=0.1)
+    # Saves on: 1) delta >= 0.05 kWh, 2) periodic interval (matching telemetry 30s), 3) recharges
+    repo_c0 = FlashMeterRepository(
+        filename="meter_state_c0.json",
+        save_threshold_kwh=0.05,
+        save_interval_ms=Config.TELEMETRY_INTERVAL_MS,
+    )
+    repo_c1 = FlashMeterRepository(
+        filename="meter_state_c1.json",
+        save_threshold_kwh=0.05,
+        save_interval_ms=Config.TELEMETRY_INTERVAL_MS,
+    )
 
     # ── 3. Domain Entities ────────────────────────────────────────────────────
     initial_kwh_c0 = repo_c0.load()
@@ -144,48 +153,62 @@ def main() -> None:
     # ── 7. Main loop ──────────────────────────────────────────────────────────
     last_telemetry_ms = 0
 
-    while True:
-        now = time.ticks_ms()
+    try:
+        while True:
+            now = time.ticks_ms()
 
-        # A. Process local physical inputs and sensor consumption
-        uc_energy.execute()   # deducts consumption on active channels
-        uc_keypad.execute()   # scans keypad -> accumulates token -> prompts channel -> validates
+            # A. Process local physical inputs and sensor consumption
+            uc_energy.execute()   # deducts consumption on active channels
+            uc_keypad.execute()   # scans keypad -> accumulates token -> prompts channel -> validates
 
-        # B. Process incoming remote commands (from FastAPI via HiveMQ)
-        mqtt.check_messages()
+            # B. Process incoming remote commands (from FastAPI via HiveMQ)
+            mqtt.check_messages()
 
-        # B2. Resilient auto-reconnection if network dropped
-        mqtt.reconnect_if_needed(now, interval_ms=10000)
+            # B2. Resilient auto-reconnection if network dropped
+            mqtt.reconnect_if_needed(now, interval_ms=10000)
 
-        # C. Update physical outputs (Display dual channels, Relays, LEDs)
-        # CRITICAL: Only update display if user is NOT typing or in channel prompt!
-        if not uc_keypad.is_active:
-            uc_outputs.execute(meter_c0, meter_c1)
-        else:
-            # Keep relays safely in sync without overwriting the LCD screen
-            relay_c0.update(meter_c0)
-            relay_c1.update(meter_c1)
+            # C. Update physical outputs (Display dual channels, Relays, LEDs)
+            # CRITICAL: Only update display if user is NOT typing or in channel prompt!
+            if not uc_keypad.is_active:
+                uc_outputs.execute(meter_c0, meter_c1)
+            else:
+                # Keep relays safely in sync without overwriting the LCD screen
+                relay_c0.update(meter_c0)
+                relay_c1.update(meter_c1)
 
-        # D. Publish Continuous Telemetry (every 30s as specified in guide)
-        if time.ticks_diff(now, last_telemetry_ms) >= Config.TELEMETRY_INTERVAL_MS:
-            if mqtt.is_connected:
-                if meter_c0.serial_number:
-                    mqtt.publish_telemetry(
-                        serial=meter_c0.serial_number,
-                        kwh_saldo=meter_c0.balance_kwh,
-                        relay_state=relay_c0.is_active,
-                        reading=uc_energy.last_reading_c0
-                    )
-                if meter_c1.serial_number:
-                    mqtt.publish_telemetry(
-                        serial=meter_c1.serial_number,
-                        kwh_saldo=meter_c1.balance_kwh,
-                        relay_state=relay_c1.is_active,
-                        reading=uc_energy.last_reading_c1
-                    )
-            last_telemetry_ms = now
+            # D. Publish Continuous Telemetry & Sync Flash (every 30s as specified in guide)
+            if time.ticks_diff(now, last_telemetry_ms) >= Config.TELEMETRY_INTERVAL_MS:
+                # Synchronize local flash with exact value sent to Supabase (only if changed!)
+                repo_c0.save_if_changed(meter_c0.balance_kwh)
+                if repo_c1 and meter_c1:
+                    repo_c1.save_if_changed(meter_c1.balance_kwh)
 
-        time.sleep_ms(Config.LOOP_MS)
+                if mqtt.is_connected:
+                    if meter_c0.serial_number:
+                        mqtt.publish_telemetry(
+                            serial=meter_c0.serial_number,
+                            kwh_saldo=meter_c0.balance_kwh,
+                            relay_state=relay_c0.is_active,
+                            reading=uc_energy.last_reading_c0
+                        )
+                    if meter_c1.serial_number:
+                        mqtt.publish_telemetry(
+                            serial=meter_c1.serial_number,
+                            kwh_saldo=meter_c1.balance_kwh,
+                            relay_state=relay_c1.is_active,
+                            reading=uc_energy.last_reading_c1
+                        )
+                last_telemetry_ms = now
+
+            time.sleep_ms(Config.LOOP_MS)
+
+    except KeyboardInterrupt:
+        print("\n[Shutdown] Stopping main loop...")
+    finally:
+        print("[Shutdown] Ensuring latest meter balances are persisted to flash...")
+        repo_c0.save_if_changed(meter_c0.balance_kwh)
+        if repo_c1 and meter_c1:
+            repo_c1.save_if_changed(meter_c1.balance_kwh)
 
 
 if __name__ == "__main__":

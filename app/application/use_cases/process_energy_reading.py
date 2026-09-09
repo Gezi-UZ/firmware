@@ -28,7 +28,8 @@ class ProcessEnergyReading:
             if reading_0 is not None:
                 self.last_reading_c0 = reading_0
                 self._meter_c0.apply_consumption(reading_0)
-                self._repo_c0.save(self._meter_c0.balance_kwh, force=False)
+                force_save = not self._meter_c0.supply_active  # Gravação imediata se saldo zerar
+                self._repo_c0.save(self._meter_c0.balance_kwh, force=force_save)
 
         # Channel 1
         if self._meter_c1 and self._meter_c1.supply_active:
@@ -37,5 +38,6 @@ class ProcessEnergyReading:
                 self.last_reading_c1 = reading_1
                 self._meter_c1.apply_consumption(reading_1)
                 if self._repo_c1:
-                    self._repo_c1.save(self._meter_c1.balance_kwh, force=False)
+                    force_save_1 = not self._meter_c1.supply_active  # Gravação imediata se saldo zerar
+                    self._repo_c1.save(self._meter_c1.balance_kwh, force=force_save_1)
 

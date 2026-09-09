@@ -16,3 +16,10 @@ class IMeterRepository:
         throttle saves to prevent flash memory wear.
         """
         raise NotImplementedError()
+
+    def save_if_changed(self, current_kwh: float) -> bool:
+        """
+        Saves immediately if the current balance has changed from the last saved state.
+        Returns True if a write occurred, False otherwise.
+        """
+        raise NotImplementedError()
